@@ -21,26 +21,6 @@ def with_client(func):
     return wrapper
 
 
-def print_size(size, unit_size: int = 1024, unit: str = 'B', current: str = ''):
-    if size < unit_size ** 1:
-        pass
-    elif size < unit_size ** 2:
-        unit = 'K' + unit
-        size = float(size) / unit_size
-    elif size < unit_size ** 3:
-        unit = 'M' + unit
-        size = float(size) / unit_size ** 2
-    elif size < unit_size ** 4:
-        unit = 'G' + unit
-        size = float(size) / unit_size ** 3
-    elif size < unit_size ** 5:
-        unit = 'T' + unit
-        size = float(size) / unit_size ** 4
-    else:
-        return size
-    return '%.2f %s' % (size, unit)
-
-
 def load_cookie(client: AsyncClient, cookie_filename):
     with open(cookie_filename, 'rb') as f:
         client.cookies.update(pickle.load(f))
@@ -113,14 +93,6 @@ def parse_iso_datetime(dt_string):
 
 def get_ua():
     return random.choice(ua)
-
-
-
-# async def alog_response(res: Response):
-# print(f"[{res.status_code}] {res.url}")
-
-# async def alog_response_headers(res: Response):
-# print(dict(res.headers.items()), end='\n\n')
 
 
 def log_response(res: Response):

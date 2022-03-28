@@ -1,8 +1,8 @@
-./DataScraperBase.py
-./main.py
-./scraper_engine.py
+DataScraperBase.py
+main.py
+scraper_engine.py
 
-./copy_headers.py
+copy_headers.py
 
 
 # Byte-compiled / optimized / DLL files

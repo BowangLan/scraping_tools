@@ -3,7 +3,27 @@ from rich import print
 import pyperclip
 
 
-def parse_cookies(cookie_string):
+def print_number_with_base(size, unit_size: int = 1024, unit: str = 'B', current: str = ''):
+    if size < unit_size ** 1:
+        pass
+    elif size < unit_size ** 2:
+        unit = 'K' + unit
+        size = float(size) / unit_size
+    elif size < unit_size ** 3:
+        unit = 'M' + unit
+        size = float(size) / unit_size ** 2
+    elif size < unit_size ** 4:
+        unit = 'G' + unit
+        size = float(size) / unit_size ** 3
+    elif size < unit_size ** 5:
+        unit = 'T' + unit
+        size = float(size) / unit_size ** 4
+    else:
+        return size
+    return '%.2f %s' % (size, unit)
+
+
+def format_cookie_string(cookie_string: str) -> dict:
     output = {}
     for c in cookie_string.split('; '):
         name, *value = c.split('=')
@@ -12,7 +32,7 @@ def parse_cookies(cookie_string):
     return output
 
 
-def parse_headers(header_string):
+def format_header_string(header_string: str) -> dict:
     output = {}
     for c in header_string.split('\n'):
         c = c.strip()
@@ -41,9 +61,9 @@ if __name__ == '__main__':
     c = sys.argv[1]
     if c == 'h':
         user_input = get_multiple_input('Please enter header strings:')
-        parse_headers(user_input)
+        format_header_string(user_input)
     elif c == 'c':
         user_input = get_multiple_input('Please enter cookie strings:')
-        parse_cookies(user_input)
+        format_cookie_string(user_input)
     else:
         print("Invalid argument! Must be either 'c' or 'h'")

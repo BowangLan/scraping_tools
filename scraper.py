@@ -10,23 +10,41 @@ import asyncio
 
 
 
+
 def make_scraper(
-    module, 
+    engine, 
     req_builder: Union[Callable[[dict], dict], dict], 
     pre_req_build: Callable[[dict], dict] = lambda r, _: r,
     callback: Callable[[Response], Any] = lambda r: r
 ) -> RequestSenderBase:
+    """Generate a RequestSenderBase object given pre_req_build and post request callback.
+    
+    Parameters:
+
+     - `req_builder` (function | dict) A method that takes in a engine as a first 
+     argument and any arbitrary list arguments and/or dictionary of keyword arguments that
+     represents the user input of the request, and returns a dictionary of request parameters.
+     If the request parameter dictionary does not depend on any user input, then a static 
+     dictionary can also be passed in.
+     - `pre_req_build` (function | list) A method that that takes in a dictionary of request 
+      parameters and returns a new dictionary of request parameters. This method is executed before building. This can also be a list of methods that will be executed sequencially.
+     the request object.
+     - `callback` (function) A method that is executed and returned after making the request.
+    """
+    # if the request build is a request param dictionary
+    # then generate a method that returns this dictionary
     if isinstance(req_builder, dict):
         req_dict = req_builder.copy()
         req_builder = lambda _: req_dict
 
     request_sender = RequestSenderBase(
-        engine=module, 
+        engine=engine, 
         req_builder=req_builder, 
         pre_req_build=pre_req_build, 
         callback=callback,
     )
     return request_sender
+
 
 
 
@@ -36,6 +54,7 @@ class ScraperModuleBase():
         self.scrapers = {}
         self.modules = {}
         self.workflows = {}
+        self.engine = None
 
     def make_scraper(
         self,
@@ -56,28 +75,33 @@ class ScraperModuleBase():
         pre_req_build: Callable[[dict], dict] = lambda r, _: r,
         callback: Callable[[Response], Any] = lambda r: r
     ) -> Callable:
-        def wrapper(req_builder: Callable[[dict], dict]):
-            self.scrapers[name] = {
-                'req_builder': req_builder,
-                'pre_req_build': pre_req_build,
-                'callback': callback
-            }
+        def wrapper(req_builder: RequestBuilder):
+            self.scrapers[name] = make_scraper(
+                None,
+                req_builder, 
+                pre_req_build=pre_req_build, 
+                callback=callback
+            )
             # print("Scraper registered: {}".format(name))
+            return self.scrapers[name]
         return wrapper
 
     def register_workflow(
         self, 
         name: str
     ):
-        def wrapper(workflow):
-            self.workflows[name] = workflow
+        def wrapper(w):
+            self.workflows[name] = lambda *args, **kwargs: w(self, *args, **kwargs)
         return wrapper
 
+    def set_engine(self, engine: ScrapingEngineBase):
+        for s in self.scrapers.values():
+            s.engine = engine
+        for m in self.modules.values():
+            m.set_engine(engine)
+
     def load_scraper_module(self, name, module):
-        self.modules[name] = {}
-        for sname,s_dict in module.scrapers.items():
-            s = make_scraper(self, **s_dict)
-            self.modules[name][sname] = s
+        self.modules[name] = module
 
 
 
@@ -99,42 +123,32 @@ class ScrapingEngineBase(ScraperModuleBase):
         if cookie:
             self.client.headers.update({'cookie': cookie})
 
-        setattr(self, 'FFF', lambda self: 'r')
-
     async def aclose(self) -> Coroutine[None]:
         await self.client.aclose()
 
+    def set_engine(self, _: ScrapingEngineBase):
+        pass
+    
     def register_scraper(
         self, 
         name: str,
         pre_req_build: Callable[[dict], dict] = lambda r, _: r,
         callback: Callable[[Response], Any] = lambda r: r
     ) -> Callable:
-        def wrapper(req_builder: Callable[[dict], dict]):
+        def wrapper(req_builder: RequestBuilder):
             self.scrapers[name] = make_scraper(
                 self,
                 req_builder, 
                 pre_req_build=pre_req_build, 
                 callback=callback
             )
+            return self.scrapers[name]
             # print("Scraper registered: {}".format(name))
         return wrapper
 
-    def register_workflow(
-        self, 
-        name: str
-    ):
-        def wrapper(workflow):
-            self.workflows[name] = lambda *args, **kwargs: workflow(self, *args, **kwargs)
-        return wrapper
-
-    def load_scraper_module(self, name, module):
-        for sname,s_dict in module.scrapers.items():
-            module.scrapers[sname] = make_scraper(self, **s_dict)
-        for wname,w in module.workflows.items():
-            module.workflows[wname] = lambda *args, **kwargs: w(module, *args, **kwargs)
-        self.modules[name] = module
-
+    def load_scraper_module(self, name: str, module: ScraperModuleBase) -> None:
+        super().load_scraper_module(name, module)
+        module.set_engine(self)
 
     def start_many(self, req_builders: Callable[[dict], Iterable], sync: bool = True) -> RequestSenderBase:
         request_sender = RequestSenderBase(self, req_builders, many=True, sync=sync)
@@ -153,6 +167,8 @@ async def send_request_with_params(client: AsyncClient, params: dict) -> Respons
     return res
             
 
+T = TypeVar('T')
+RequestBuilder = Callable[[ScrapingEngineBase, Any], Union[dict, Iterable]]
 
 
 @dataclass
@@ -160,7 +176,7 @@ class RequestSenderBase():
 
     engine: ScrapingEngineBase
 
-    req_builder: Callable[[dict], Union[dict, Iterable]]
+    req_builder: RequestBuilder
     pre_req_build: Callable[[dict, ScrapingEngineBase], dict] = lambda r, _: r
     callback: Callable[[Response], Any] = lambda r: r
 
@@ -236,103 +252,3 @@ class RequestSenderBase():
         else:
             self.apply(pre_parsers[pre_parser])
         return self
-
-
-
-# @dataclass
-# class ScraperBase():
-
-#     engine: ScrapingEngineBase = None
-
-#     # method: str
-#     # url: URLTypes
-
-#     # data: RequestData = None,
-#     # files: RequestFiles = None,
-#     # json: Any = None,
-#     # params: QueryParamTypes = None,
-#     # headers: HeaderTypes = None,
-#     # cookies: CookieTypes = None,
-#     # timeout: Union[TimeoutTypes, UseClientDefault] = USE_CLIENT_DEFAULT,
-
-#     req_kwargs: dict = None
-
-#     header_set_name: str = None
-
-#     res: Response = field(default=None, init=False)
-
-#     method_name = ''
-
-#     post_hooks = []
-    
-#     parse: Callable[[
-#         Response, BeautifulSoup, lxml.html.HTMLElement
-#     ], Any] = field(default=lambda r: r)
-#     validate_before_pre_parse: bool = True
-
-#     sleep_after: int = None
-
-#     validate: Callable[[
-#         Union[Response, BeautifulSoup, lxml.html.HTMLElement
-#     ]], bool] = field(default=lambda r: True)
-
-#     async def start(self, **kwargs):
-#         if self.engine == None:
-#             print("No engine specified")
-#             return
-
-#         if self.header_set_name and self.header_set_name in self.engine.header_set.keys():
-#             if not self.req_kwargs.get('headers'):
-#                 self.req_kwargs['headers'] = {}
-#             self.req_kwargs['headers'].update(self.engine.header_set[self.header_set_name])
-
-#         # TODO: how to build requests
-#         req_params = {k: v.format(**kwargs) for k,v in self.req_kwargs.items()}
-
-#         self.res = await self.send(req_params)
-
-#         if self.validate_before_pre_parse:
-#             self.validate(self.res)
-#             res_after_pre = self._pre_parse(self.pre_parser, self.res)
-#         else:
-#             res_after_pre = self._pre_parse(self.pre_parser, self.res)
-#             self.validate(res_after_pre)
-
-#         result = self.parse(res_after_pre)
-        
-#         if self.sleep_after:
-#             await asyncio.sleep(self.sleep_after)
-
-#         for h in self.post_hooks:
-#             result = h(result)
-
-#         return result
-
-
-#     async def send(self, req_params):
-#         req = self.engine.client.build_request(
-#             # method=self.method,
-#             # url=self.url,
-#             # data=self.data,
-#             # files=self.files,
-#             # json=self.json,
-#             # params=self.params,
-#             # headers=self.headers,
-#             # cookies=self.cookies,
-#             # timeout=self.timeout
-#             **req_params
-#         )
-
-#         res = await self.engine.client.send(req)
-
-#         return res
-
-#     def build(self, **kwargs):
-#         pass
-
-#     def _pre_parse(self, pre_parser: str, res: Response):
-#         if pre_parser not in pre_parsers.keys():
-#             print("'{}' pre parser not supported".format(pre_parser))
-#             pre_parser = ''
-#         return pre_parsers[pre_parser](res)
-
